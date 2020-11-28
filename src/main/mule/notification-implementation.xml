@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+	<flow name="get-locations" doc:id="cffde28e-0665-4dd2-90b5-b6ce5f5ce81a" >
+		<json-logger:logger doc:name="Logger" doc:id="6edbb592-7ca2-4561-840e-79e337ae9f46" config-ref="jsonLoggerConfig" message="start of get locations details"/>
+		<db:select doc:id="1a3b93b4-97ef-4a53-91bf-355368a2cf68" config-ref="databaseConfig">
+			<db:sql >SELECT  DISTINCT SOURCE_LOCATION,DESTINATION_LOCATION, TIMESTAMPDIFF(MINUTE,CURRENT_TIME,MAX(TO_TIME)) AS ADVANCE_NOTIFICATION_TIME_MIN FROM SUBSCRIPTION WHERE
+CURRENT_TIMESTAMP &gt; ADDDATE(FROM_TIME,INTERVAL - :MAX_ADVANCE_NOTIFICATION MINUTE) AND CURRENT_TIMESTAMP &gt; ADDDATE(FROM_TIME,INTERVAL -ADVANCE_NOTIFY_TIME_MIN-1 MINUTE) AND FROM_TIME &gt; CURRENT_TIMESTAMP
+GROUP BY SOURCE_LOCATION,DESTINATION_LOCATION</db:sql>
+			<db:input-parameters ><![CDATA[#[MAX_ADVANCE_NOTIFICATION : message.attributes.queryParams.notificationRangeMins]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="362a5b8e-e476-4f69-b866-ecbce554e654" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+  sourceLocationCode: $.SOURCE_LOCATION as String,
+  destinationLocationCode: $.DESTINATION_LOCATION as String,
+  advanceNotificationMins: $.ADVANCE_NOTIFICATION_TIME_MIN as Number,
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="Logger" doc:id="7ab89a29-d90c-4a82-a4ea-e040652f4d25" config-ref="jsonLoggerConfig" message="end of get locations details" tracePoint="END"/>
+	</flow>
+	
+	<flow name="get-all-user-details" doc:id="7cc49920-47e3-4d77-ba08-89b081162013" >
+		<json-logger:logger doc:name="Logger" doc:id="9f52841d-5b23-4991-8987-3335ba6daf03" config-ref="jsonLoggerConfig" message="start of get user details"/>
+		<choice doc:name="Choice" doc:id="77893d82-0e37-45c1-bbd5-d8e6a5933b27" >
+			<when expression="#[!isEmpty(attributes.queryParams.trainTime) and !isEmpty(attributes.queryParams.sourceLocationCode) and !isEmpty(attributes.queryParams.destinationLocationCode)]">
+				<db:select doc:name="Select User Details By Time Stamp And Location" doc:id="21ee3143-bc47-4cb8-83c3-d6e4e0a14ba3" config-ref="databaseConfig" >
+					<error-mapping targetType="US_SUB_SAPI:USER_DETAILS_BY_TIME_STAMP_LOCATION" />
+					<db:sql ><![CDATA[SELECT first_name,last_name,email_id,user_id,phone_number from USER WHERE user_id IN ((SELECT USER_ID FROM SUBSCRIPTION WHERE  (:trainTime BETWEEN FROM_TIME AND TO_TIME) and SOURCE_LOCATION = :sourceLocationCode and DESTINATION_LOCATION = :destinationLocationCode)) ]]></db:sql>
+					<db:input-parameters ><![CDATA[#[{
+	trainTime : attributes.queryParams.trainTime,
+	sourceLocationCode : attributes.queryParams.sourceLocationCode,
+	destinationLocationCode : attributes.queryParams.destinationLocationCode
+}]]]></db:input-parameters>
+				</db:select>
+				<validation:validate-size doc:name="Validate User Not Available In Database For The Train Time" doc:id="96806c34-5131-4999-9584-2d74c2ea3e78" config-ref="Validation_Config" value="#[payload]" min="1" message="User not available in database for the train time" />
+			
+</when>
+			<when expression="#[!isEmpty(attributes.queryParams.creationDate)]">
+				<db:select doc:name="Select User Details By Time Stamp" doc:id="b697dd0e-2aad-4227-a8ec-aca44e07f9e6" config-ref="databaseConfig">
+					<error-mapping targetType="US_SUB_SAPI:USER_DETAILS_BY_TIME_STAMP" />
+					<db:sql ><![CDATA[SELECT first_name,last_name,email_id,user_id,phone_number from USER  WHERE  CREATED_TIMESTAMP BETWEEN :START_DATE AND :END_DATE]]></db:sql>
+					<db:input-parameters ><![CDATA[#[{
+	START_DATE : attributes.queryParams.creationDate ++ " 00:00:01",
+	END_DATE : attributes.queryParams.creationDate ++ " 23:59:59",
+}]]]></db:input-parameters>
+				</db:select>
+			</when>
+			<otherwise>
+				<db:select doc:name="Select All User Details" doc:id="fc9096cb-98c7-49fc-a725-d171313feaa7" config-ref="databaseConfig">
+			<error-mapping targetType="US_SUB_SAPI:USER_DETAILS" />
+					<db:sql><![CDATA[select first_name,last_name,email_id,user_id,phone_number from USER]]></db:sql>
+		</db:select>
+				<validation:validate-size doc:name="Validate No Users Are Available In The Database" doc:id="62c80181-d190-45f6-b348-2ad03e184d9c" config-ref="Validation_Config" value="#[payload]" min="1" message="No users are available in the database" />
+			</otherwise>
+		</choice>
+		<ee:transform doc:name="Transform Message" doc:id="03cab332-446b-4f99-bfa1-7eb6eda3358b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+  firstName: $.first_name as String,
+  secondName: $.last_name as String,
+  email: $.email_id as String,
+  userId: $.user_id as String,
+  phone: $.phone_number as String
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="Logger" doc:id="5f752d7f-e500-4bbe-9ad1-62e8062130a9" config-ref="jsonLoggerConfig" message="end of get user details" tracePoint="END"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="d92251d6-622d-4f59-be12-90d9da763a44" when="#[error.description == 'No users are available in the database']" >
+				<set-payload value='#[%dw 2.0
+output application/json
+---
+{
+  statusCode: "404",
+  message: "No users are available in database"
+}]' doc:name="Set Payload To Indicate No Users Are Available In Database" doc:id="39baea51-7142-4353-8ba1-49331570f330" />
+				<set-variable value="404" doc:name='Set Http Status Code To "404 Not Found"' doc:id="3029f4d6-10c9-4c51-85a6-4919377c56bd" variableName="httpStatus" />
+			</on-error-continue>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Contine" doc:id="e9d18c13-2f75-4c74-a3ed-ae2db6d6c56d" when="#[error.description == 'User not available in database for the train time']" >
+				<set-payload value='#[%dw 2.0
+output application/json
+---
+{
+  statusCode: "404",
+  message: "No users have subscribed to the train time provided"
+ }]' doc:name="Set Payload To Indicate No Users Are Available In Database" doc:id="97bf6f05-1d79-40ac-bdd5-3fd401320b2d" />
+				<set-variable value="404" doc:name='Set Http Status Code To "404 Not Found"' doc:id="df584811-eb55-4270-a746-2722e93b2358" variableName="httpStatus" />
+			</on-error-continue>
+		</error-handler>
+	
+</flow>	
+
+<flow name="get-subscriptions-by-user-id" doc:id="bd96222b-4a67-4a0d-b866-ad15754ef8d5" >
+		<json-logger:logger doc:name="Logger" doc:id="84d5db07-1d76-46f7-aea5-a6df9233cedd" config-ref="jsonLoggerConfig" message="start of get subscriptions by userid"/>
+		<choice doc:name="Choice" doc:id="17381686-5d4f-4707-8e6e-af02915b0e32" >
+			<when expression="#[!isEmpty(attributes.queryParams.trainTime) and !isEmpty(attributes.queryParams.sourceLocationCode) and !isEmpty(attributes.queryParams.destinationLocationCode)]">
+				<db:select doc:name="Select Subscription By User Id And By Train Time And Sounce And Destination" doc:id="9f82ae72-dd5b-4283-91ef-4d006f90bdcb" config-ref="databaseConfig" >
+					<db:sql ><![CDATA[select subscription_id,source_location,destination_location,from_time,to_time,user_id,advance_notify_time_min from SUBSCRIPTION where (user_id = :user_id and (:trainTime BETWEEN FROM_TIME AND TO_TIME) and SOURCE_LOCATION = :sourceLocationCode and DESTINATION_LOCATION = :destinationLocationCode)]]></db:sql>
+					<db:input-parameters ><![CDATA[#[{
+	user_id : attributes.uriParams.userId,
+	trainTime : attributes.queryParams.trainTime,
+	sourceLocationCode : attributes.queryParams.sourceLocationCode,
+	destinationLocationCode : attributes.queryParams.destinationLocationCode
+	}]]]></db:input-parameters>
+				</db:select>
+				<validation:validate-size doc:name="Validate Subscription Available Or Not For The User" doc:id="3a431b47-3d54-42b3-91ff-1dd2bfd5c461" config-ref="Validation_Config" value="#[payload]" min="1" message="No subscriptions are available for the user" />
+				<ee:transform doc:name="Transform Message" doc:id="4fa4f226-2dfb-4274-80f9-4c0a2fa06819" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+  subscriptionId : $.subscription_id as Number,
+  userId  : $.user_id as String,
+  sourceLocationCode: $.source_location as String,
+  destinationLocationCode: $.destination_location as String,
+  fromTime: $.from_time as Time,
+  toTime: $.to_time as Time,
+  advanceNotificationMins: $.advance_notify_time_min as Number,
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			
+</when>
+			<otherwise >
+				<db:select doc:name="Select Subscription By User Id And By Train Time And Sounce And Destination" doc:id="ffe0c9f7-b1d5-48e6-b861-fd851b2ab6fc" config-ref="databaseConfig">
+			<db:sql><![CDATA[select subscription_id,source_location,destination_location,from_time,to_time,user_id,advance_notify_time_min from SUBSCRIPTION where user_id = :user_id]]></db:sql>
+			<db:input-parameters><![CDATA[#[user_id : attributes.uriParams.userId]]]></db:input-parameters>
+		</db:select>
+				<validation:validate-size doc:name="Validate Subscription Available Or Not For The User" doc:id="65c7c004-d74e-46d8-9d7d-f9a5ed741f6e" config-ref="Validation_Config" value="#[payload]" min="1" message="No subscriptions are available for the user" />
+				<ee:transform doc:name="Transform Message" doc:id="6a303fda-0aad-470b-b423-5dc6c32dca6b" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+  subscriptionId : $.subscription_id as Number,
+  userId  : $.user_id as String,
+  sourceLocationCode: $.source_location as String,
+  destinationLocationCode: $.destination_location as String,
+  fromTime: $.from_time as Time,
+  toTime: $.to_time as Time,
+  advanceNotificationMins: $.advance_notify_time_min as Number,
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				
+			
+</otherwise>
+		</choice>
+		<json-logger:logger doc:name="Logger" doc:id="5e88172b-b174-4759-8db6-74ed88feb305" config-ref="jsonLoggerConfig" message="end of get subscriptions by userid" tracePoint="END"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="84854100-11f7-4f05-9812-9b5241b0154b" when="#[error.description == 'No subscriptions are available for the user']" >
+				<set-payload value='#[%dw 2.0
+output application/json
+---
+{
+  statusCode: "204",
+  message: "No subscriptions are available for the user"
+ }]' doc:name="Set Payload To Indicate No Subscriptions Are Found For The User" doc:id="a53492d9-11e0-4118-bca5-9c2fe2e44030" />
+				<set-variable value="204" doc:name='Set Http Status Code To "204 No Content Found"' doc:id="89ca5af5-8d0b-42ae-b0d8-43feb7e3cfc7" variableName="httpStatus" />
+			</on-error-continue>
+		</error-handler>
+	</flow>
+	<flow name="alert-insertion-Flow" doc:id="54b147e2-5e94-4056-9f1d-4898efc039b9" >
+		<json-logger:logger doc:id="2c1d9de4-b14e-4117-bb5b-a0f5baaf167b" config-ref="jsonLoggerConfig" message="start of alert insertion flow"/>
+		<db:insert doc:id="3230b9b4-4b52-4497-8475-553ea55bd250" config-ref="databaseConfig">
+			<db:sql >insert into ALERT(delay_type_flag,subscription_id,delay_time) values(:delay_type_flag,:subscription_id,:delay_time)</db:sql>
+			<db:input-parameters ><![CDATA[#[{subscription_id : payload.subscriptionId,
+ delay_type_flag : payload.delayType,
+ delay_time : payload.delayMins
+}]]]></db:input-parameters>
+		</db:insert>
+		<json-logger:logger doc:name="Logger" doc:id="1079ad11-6590-4fa9-9301-cea9ee17e206" config-ref="jsonLoggerConfig" message="end of alert insertion flow" tracePoint="END"/>
+		<!-- <json-logger:logger doc:id="a6c419e7-d759-4da9-8aba-1813bbb0abbf" config-ref="JSON_Logger_Config" message="JSON Logger Exit Insert Alerts"/>
+	 -->
+</flow>
+	 
+	 <flow name="get-Alerts-By-SubscriptionID" doc:id="428a2640-e677-47c3-ae0e-13d916f3343a" >
+		<json-logger:logger doc:name="Logger" doc:id="e4ae7fd0-32e5-4d6c-a2b1-9512cd7359d6" config-ref="jsonLoggerConfig" message="start of get alert by subscription id"/>
+		<db:select doc:name="Select" doc:id="7497f4ed-533f-43c7-9074-996eb352bd69" config-ref="databaseConfig">
+			<db:sql >select delay_type_flag,alert_transaction_id,delay_time,creation_timestamp from ALERT where subscription_id =:subscription_id</db:sql>
+			<db:input-parameters ><![CDATA[#[{subscription_id :attributes.uriParams.id}]]]></db:input-parameters>
+		</db:select>
+		<validation:validate-size doc:id="1341d786-6e50-4a79-bb12-0c8f74ec72a7" value="#[payload]" min="1" message="No alerts available for this subscription" config-ref="Validation_Config"/>
+		<ee:transform doc:name="output To Json" doc:id="ac9433dc-5898-4491-b1dd-02c5ff26a43c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+  delayType: $.delay_type_flag as String,
+  alertId: $.alert_transaction_id as String,
+  
+  delayMins: if (isEmpty($.delay_time)) "NOT AVAILABLLE"  else $.delay_time as Number,
+  delayDate: $.creation_timestamp 
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<json-logger:logger doc:name="Logger" doc:id="574c7e25-b7f1-4e8e-a55c-478b9e405d1f" config-ref="jsonLoggerConfig" message="end of get alert by subscription id" tracePoint="END"/>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="e2796105-3d8c-4d55-9796-68a2e0aeb39a" when="#[error.description == 'No alerts available for this subscription']">
+				<set-payload value='#[%dw 2.0
+output application/json
+---
+{
+  statusCode: "204",
+  message: "No alerts available for this subscription"
+ }]' doc:name="No Alerts Available" doc:id="b8eadc11-908d-4a48-8d00-55e46a03017b" />
+				<set-variable value="204" doc:name="httpStatus to 204" doc:id="74876466-b5b8-47e8-b8b1-7980b9021628" variableName="httpStatus"/>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+
+</mule>

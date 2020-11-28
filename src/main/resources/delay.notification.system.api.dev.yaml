@@ -1,0 +1,9 @@
+database:
+  host: "64.227.37.97"
+  port: "3306"
+  username: "njclabs"
+  password: "training"
+  name: "nrs"
+http:
+  port: "8081"
+  

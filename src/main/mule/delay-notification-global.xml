@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd 
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd 
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd">
+	<configuration-properties doc:name="Configuration properties" doc:id="efd48420-81bf-4e6a-9389-d6a784fbaede" file="delay.notification.system.api.dev.yaml" />
+	<http:listener-config name="delay-notification-system-api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="${http.port}" />
+    </http:listener-config>
+    <apikit:config name="delayNotificationSystemApiConfig" api="resource::cd5bf5d6-a7c5-40f7-a8db-9f1046bbc2fd:delay-notification-system-api:2.0.2:raml:zip:delay-notification-system-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+    <db:config name="databaseConfig" doc:name="Database Config" doc:id="93e6fdb5-11ee-4991-88eb-81741b8723d6" >
+		<db:my-sql-connection host="${database.host}" port="${database.port}" user="${database.username}" password="${database.password}" database="${database.name}" />
+	</db:config>
+	<validation:config name="Validation_Config" doc:name="Validation Config" doc:id="8949303b-b1be-44c5-9a89-b4614dd2aba9" />
+	<json-logger:config name="jsonLoggerConfig" doc:name="JSON Logger Config" doc:id="4f2b156d-896d-463a-b0d2-ef95d117b39e" applicationName="delay-notification-system-api" applicationVersion="1.0.0-SNAPSHOT" environment="${mule.env}" />
+	<global-property doc:name="Global Property" doc:id="8925007f-a71d-407e-b6de-4cc817f51808" name="mule.env" value="dev" />
+	
+
+</mule>
